@@ -41,6 +41,7 @@ pt --help
 5. Click the orange `Debug` action to start a GDB session for one test.
 6. Check multiple tests and use `Run Checked Tests` from the toolbar.
 7. Use the sort button to switch between `Number order` and `Latest first`.
+8. Use the trash button to clear checked tests and delete existing `output`, `result`, and `errors` artifacts.
 
 When a test already has artifacts, the tree shows links for `output`, `result`, and `errors`.
 
@@ -73,6 +74,7 @@ PINTOS_ROOT=/path/to/pintos pt run filesys all
 - Run multiple tests at once with checkbox selection or CLI selectors
 - Open test artifacts such as `output`, `result`, and `errors`
 - Reorder the test list with `Number order` or `Latest first`
+- Clear checked tests and existing artifact logs from the toolbar
 - Use `--recent-first` in the CLI to prioritize recently used tests
 
 ## CLI Examples

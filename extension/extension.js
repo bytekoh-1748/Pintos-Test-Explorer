@@ -329,6 +329,70 @@ function sortModeLabel(sortMode) {
   return sortMode === SORT_MODE_RECENT ? "Latest first" : "Number order";
 }
 
+function isArtifactFile(filePath) {
+  return ARTIFACT_ORDER.some((kind) => filePath.endsWith(`.${kind}`));
+}
+
+function isWorkspaceArtifactFile(rootPath, filePath) {
+  if (!filePath || !isArtifactFile(filePath)) {
+    return false;
+  }
+  const relative = path.relative(rootPath, filePath);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function collectArtifactFiles(dirPath, files = []) {
+  if (!fs.existsSync(dirPath)) {
+    return files;
+  }
+
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const childPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      collectArtifactFiles(childPath, files);
+    } else if (entry.isFile() && isArtifactFile(childPath)) {
+      files.push(childPath);
+    }
+  }
+  return files;
+}
+
+function findWorkspaceArtifactFiles(rootPath) {
+  const files = [];
+  for (const key of PROJECT_ORDER) {
+    const project = PROJECTS[key];
+    const testsDir = path.join(rootPath, ...project.buildDir, "tests");
+    collectArtifactFiles(testsDir, files);
+  }
+  return files;
+}
+
+async function closeOpenArtifactTabs(rootPath) {
+  if (!vscode.window.tabGroups?.all || typeof vscode.window.tabGroups.close !== "function") {
+    return 0;
+  }
+
+  const tabsToClose = [];
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      if (
+        input instanceof vscode.TabInputText &&
+        isWorkspaceArtifactFile(rootPath, input.uri.fsPath)
+      ) {
+        tabsToClose.push(tab);
+      }
+    }
+  }
+
+  if (!tabsToClose.length) {
+    return 0;
+  }
+
+  await vscode.window.tabGroups.close(tabsToClose, true);
+  return tabsToClose.length;
+}
+
 function readResultStatus(resultPath) {
   if (!resultPath || !fs.existsSync(resultPath)) {
     return "unknown";
@@ -708,6 +772,55 @@ async function debugTest(testNode) {
   }
 }
 
+async function clearChecksAndArtifacts() {
+  const closedTabCount = await closeOpenArtifactTabs(provider.rootPath);
+  const artifactFiles = findWorkspaceArtifactFiles(provider.rootPath);
+  let removedCount = 0;
+  const failures = [];
+
+  for (const filePath of artifactFiles) {
+    try {
+      fs.unlinkSync(filePath);
+      removedCount += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(`${filePath}: ${message}`);
+    }
+  }
+
+  outputChannel.clear();
+  if (removedCount > 0) {
+    outputChannel.appendLine(`Removed ${removedCount} artifact file(s).`);
+  }
+  if (closedTabCount > 0) {
+    outputChannel.appendLine(`Closed ${closedTabCount} open artifact tab(s).`);
+  }
+  if (failures.length) {
+    outputChannel.appendLine("Some artifacts could not be removed:");
+    for (const failure of failures) {
+      outputChannel.appendLine(`- ${failure}`);
+    }
+    outputChannel.show(true);
+  }
+
+  provider.refresh({ clearChecked: true });
+
+  if (failures.length) {
+    vscode.window.showWarningMessage(
+      `Cleared checks, closed ${closedTabCount} artifact tab(s), and removed ${removedCount} artifact file(s), but ${failures.length} file(s) could not be deleted.`
+    );
+    return;
+  }
+
+  vscode.window.showInformationMessage(
+    removedCount > 0
+      ? `Cleared checks, closed ${closedTabCount} artifact tab(s), and removed ${removedCount} artifact file(s).`
+      : closedTabCount > 0
+        ? `Cleared checks and closed ${closedTabCount} artifact tab(s).`
+        : "Cleared checks. No artifact files were found."
+  );
+}
+
 function registerCommand(context, name, fn) {
   context.subscriptions.push(vscode.commands.registerCommand(name, fn));
 }
@@ -774,7 +887,9 @@ function activate(context) {
     provider.setSortMode(nextSortMode);
     syncSortModeState(context, nextSortMode);
   });
-  registerCommand(context, "pintosTests.clearChecked", () => provider.clearChecked());
+  registerCommand(context, "pintosTests.clearChecked", async () => {
+    await clearChecksAndArtifacts();
+  });
   registerCommand(context, "pintosTests.runSelected", async () => {
     const checked = await provider.getCheckedNodes();
     if (!checked.length) {

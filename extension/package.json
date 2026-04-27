@@ -2,7 +2,7 @@
   "name": "pintos-test-explorer",
   "displayName": "Pintos Test Explorer",
   "description": "Run and debug Pintos test cases from a dedicated VS Code sidebar",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "YoojinKoh",
   "license": "MIT",
   "icon": "media/extension_icon.png",
@@ -124,7 +124,7 @@
       },
       {
         "command": "pintosTests.clearChecked",
-        "title": "Clear Checked Tests",
+        "title": "Clear Checks and Artifacts",
         "category": "Pintos",
         "icon": {
           "light": "media/clear.svg",

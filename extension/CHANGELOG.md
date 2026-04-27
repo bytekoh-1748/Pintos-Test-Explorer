@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.6
+
+- Added the toolbar sort toggle to the published package so the `Pintos Tests` view can switch between `Number order` and `Latest first`.
+- Changed the trash button to reset checked tests and delete existing `output`, `result`, and `errors` artifact files from the Pintos build tree.
+- Updated the Activity Bar `Pintos` icon so the `P` mark is filled for better visibility.
+- Rebuilt the packaged README and extension metadata so the shipped VSIX matches the current public documentation.
+
 ## 0.1.5
 
 - Refreshed the unpublished `0.1.5` package metadata so the repository, homepage, and issue links all point to the standalone `Pintos-Test-Explorer` GitHub repository.

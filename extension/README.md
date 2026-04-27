@@ -23,6 +23,7 @@ After installation, look for the `P os` icon in the Activity Bar.
 5. Click the orange `Debug` button to start a GDB debug session for a single test.
 6. Check multiple tests and use `Run Checked Tests` from the view toolbar for batch execution.
 7. Use the toolbar sort button to switch between `Number order` and `Latest first`.
+8. Use the trash button to clear checked tests and remove existing `output`, `result`, and `errors` artifacts.
 
 When a test has artifacts, the tree shows quick links for `output`, `result`, and `errors`.
 
@@ -45,6 +46,7 @@ This extension is designed for common Pintos lab workflows and is most reliable 
 - Debug one test with a GDB remote attach flow
 - Check multiple tests and run them as a batch
 - Toggle the tree between `Number order` and `Latest first`
+- Clear checked tests and remove existing `output`, `result`, and `errors` artifacts from the toolbar
 - Open `output`, `result`, and `errors` files directly from the tree
 - Build the visible test list dynamically from `Make.tests`
 
