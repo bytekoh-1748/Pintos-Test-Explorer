@@ -6,6 +6,12 @@ Run, debug, reset, and inspect Pintos test cases from a dedicated VS Code sideba
 
 `Pintos Test Explorer` is a workspace-focused extension for common Pintos lab environments, including the `pintos_22.04_lab_docker` workflow. It shows the built-in Pintos test suites in a tree, lets you run one test or many tests without memorizing names, and starts GDB-backed debugging directly from the UI.
 
+## Demo
+
+[![Watch the demo video](https://img.youtube.com/vi/FyJ1jKg3zNk/hqdefault.jpg)](https://youtu.be/FyJ1jKg3zNk)
+
+Watch the walkthrough: [YouTube demo video](https://youtu.be/FyJ1jKg3zNk)
+
 ## Install
 
 1. Open `Extensions` in VS Code.
@@ -70,14 +76,17 @@ If a test run fails before Pintos can generate its normal artifacts, the extensi
 
 ## Companion CLI
 
-This repository also includes a terminal-first companion CLI in the repository's `scripts/` directory. The official command name is `pintos-tests`, and a shorter `pt` shortcut is available for day-to-day use. It is a repo companion, so installing the VS Code extension alone does not add either command to your shell automatically.
+This repository also includes a terminal-first companion CLI. The official command name is `pintos-tests`, and a shorter `pt` shortcut is available for day-to-day use. In the VS Code integrated terminal where the extension is active, both commands are exposed automatically. For other shells, install wrappers explicitly.
 
-Recommended setup:
+`pt` and `pintos-tests` are interchangeable. They run the same CLI and accept the same subcommands and flags, so local terminals, scripts, and CI jobs can mix them freely.
+
+Inside the VS Code integrated terminal where the extension is installed, `pt` and `pintos-tests` are available automatically. Open a new integrated terminal after installing or reloading the extension, then run:
 
 ```bash
-source scripts/install-pintos-cli.sh
 pt --help
 ```
+
+If you want the same commands in other shells too, run the Command Palette action `Pintos: Install CLI Wrappers to Shell`.
 
 Common selector examples:
 
@@ -116,11 +125,7 @@ Selector rules:
 
 `--recent-first` uses your local run/debug history and moves the most recently used tests to the top of the list. The history is stored in `.vscode/pintos-test-history.json` inside the Pintos workspace.
 
-If you want `pintos-tests` and `pt` available from any terminal:
-
-```bash
-source scripts/install-pintos-cli.sh
-```
+If you want `pintos-tests` and `pt` available from any terminal, run `Pintos: Install CLI Wrappers to Shell`.
 
 That installs small wrappers at `~/.local/bin/pintos-tests` and `~/.local/bin/pt`.
 It also adds `~/.local/bin` to your shell profile so the commands keep working in future shells.
@@ -133,13 +138,20 @@ pt list threads
 pintos-tests debug vm 4 --server-only
 ```
 
-If you prefer shell integration without installing a wrapper:
+Automation-friendly commands:
 
 ```bash
-source scripts/pintos-shell.sh
+pt list threads --json
+pt pick threads alarm-zero --single
+pintos-tests artifacts threads alarm-zero --json
+pt reset-all --json
 ```
 
-That makes both `pintos-tests` and `pt` available in the current shell only.
+If you are working from a source checkout of this repository itself, the repo-local helper scripts still work from the repository root:
+
+```bash
+source scripts/install-pintos-cli.sh
+```
 
 ## License
 

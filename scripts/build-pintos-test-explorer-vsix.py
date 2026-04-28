@@ -91,6 +91,8 @@ CONTENT_TYPES_XML = """<?xml version="1.0" encoding="utf-8"?>
   <Default Extension=".svg" ContentType="image/svg+xml" />
   <Default Extension=".txt" ContentType="text/plain" />
   <Default Extension=".vsixmanifest" ContentType="text/xml" />
+  <Override PartName="/extension/bundled/pintos-tests" ContentType="application/octet-stream" />
+  <Override PartName="/extension/bundled/pt" ContentType="application/octet-stream" />
 </Types>
 """
 

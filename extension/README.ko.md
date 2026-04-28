@@ -6,6 +6,12 @@
 
 `Pintos Test Explorer`는 `pintos_22.04_lab_docker` 같은 일반적인 Pintos 실습 환경을 기준으로 만든 워크스페이스 중심 확장입니다. 기본 Pintos 테스트 목록을 트리로 보여주고, 이름을 외우지 않아도 한 개 또는 여러 개 테스트를 바로 실행할 수 있으며, GDB 기반 디버깅도 UI에서 시작할 수 있습니다.
 
+## 시연 영상
+
+[![시연 영상 보기](https://img.youtube.com/vi/FyJ1jKg3zNk/hqdefault.jpg)](https://youtu.be/FyJ1jKg3zNk)
+
+바로 보기: [YouTube 시연 영상](https://youtu.be/FyJ1jKg3zNk)
+
 ## 설치
 
 1. VS Code에서 `Extensions`를 엽니다.
@@ -70,14 +76,17 @@
 
 ## Companion CLI
 
-이 저장소에는 같은 흐름을 터미널에서 쓸 수 있는 companion CLI도 포함되어 있습니다. 정식 명령 이름은 `pintos-tests`이고, 일상용 짧은 별칭으로 `pt`를 제공합니다. 다만 VS Code 확장을 설치했다고 해서 자동으로 셸 명령이 추가되지는 않습니다.
+이 저장소에는 같은 흐름을 터미널에서 쓸 수 있는 companion CLI도 포함되어 있습니다. 정식 명령 이름은 `pintos-tests`이고, 일상용 짧은 별칭으로 `pt`를 제공합니다. VS Code에서 확장이 활성화된 통합 터미널에서는 두 명령을 자동으로 쓸 수 있고, 그 밖의 셸에서는 래퍼 설치가 필요합니다.
 
-권장 설정:
+`pt`와 `pintos-tests`는 서로 바꿔 써도 됩니다. 같은 CLI를 가리키고, 같은 서브커맨드와 옵션을 받기 때문에 로컬 터미널, 스크립트, CI에서 자유롭게 섞어 사용할 수 있습니다.
+
+VS Code에서 이 확장이 설치된 통합 터미널에서는 `pt`와 `pintos-tests`를 자동으로 쓸 수 있습니다. 확장을 설치하거나 리로드한 뒤 새 통합 터미널을 열고 다음처럼 실행하세요.
 
 ```bash
-source scripts/install-pintos-cli.sh
 pt --help
 ```
+
+다른 셸에서도 같은 명령을 쓰고 싶다면 Command Palette에서 `Pintos: Install CLI Wrappers to Shell`을 실행하면 됩니다.
 
 자주 쓰는 selector 예시:
 
@@ -116,13 +125,9 @@ selector 규칙:
 
 `--recent-first`는 로컬 run/debug 기록을 사용해 최근에 사용한 테스트를 위로 올립니다. 기록은 Pintos 워크스페이스의 `.vscode/pintos-test-history.json`에 저장됩니다.
 
-어느 터미널에서나 `pintos-tests`와 `pt`를 쓰고 싶다면:
+어느 터미널에서나 `pintos-tests`와 `pt`를 쓰고 싶다면 Command Palette에서 `Pintos: Install CLI Wrappers to Shell`을 실행하세요.
 
-```bash
-source scripts/install-pintos-cli.sh
-```
-
-이 스크립트는 `~/.local/bin/pintos-tests`와 `~/.local/bin/pt` 래퍼를 설치하고, 이후 셸에서도 계속 동작하도록 `~/.local/bin`을 셸 프로필에 추가합니다.
+이 명령은 `~/.local/bin/pintos-tests`와 `~/.local/bin/pt` 래퍼를 설치하고, 이후 셸에서도 계속 동작하도록 `~/.local/bin`을 셸 프로필에 추가합니다.
 
 설치 후 예시:
 
@@ -132,13 +137,20 @@ pt list threads
 pintos-tests debug vm 4 --server-only
 ```
 
-랩퍼 설치 없이 현재 셸에서만 잠깐 쓰고 싶다면:
+자동화에 유용한 명령:
 
 ```bash
-source scripts/pintos-shell.sh
+pt list threads --json
+pt pick threads alarm-zero --single
+pintos-tests artifacts threads alarm-zero --json
+pt reset-all --json
 ```
 
-이 방법은 현재 셸 세션에서만 `pintos-tests`와 `pt`를 활성화합니다.
+이 저장소 자체를 직접 clone해서 쓰는 경우에는, 저장소 루트에서 기존 helper 스크립트도 계속 사용할 수 있습니다.
+
+```bash
+source scripts/install-pintos-cli.sh
+```
 
 ## 라이선스
 

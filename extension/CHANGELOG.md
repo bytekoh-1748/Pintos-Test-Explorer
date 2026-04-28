@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0
+
+- Refreshed the public English and Korean README files with the demo video, a fuller CLI command reference, selector rules, artifact notes, and clearer CI guidance for mixing `pt` and `pintos-tests`.
+- Packaged the current companion CLI/runtime improvements into a new VSIX release, including integrated-terminal CLI availability, installable shell wrappers, broader Pintos root discovery, and more portable Python/bash/gdb resolution.
+
+## 0.1.9
+
+- Fixed Pintos root discovery so the extension, bundled CLI, and GDB helper all recognize workspace layouts rooted at `src/`, `pintos/`, and `pintos/src/`.
+- Fixed bundled command launching on more Linux and Windows machines by resolving `python3`/`python`/`py`, `bash`, and `gdb` from the active environment instead of assuming one exact executable path.
+- Added Windows terminal wrapper generation for the bundled `pt` and `pintos-tests` commands so the integrated terminal can find them reliably after activation.
+
+## 0.1.8
+
+- Made the bundled companion CLI available automatically in the VS Code integrated terminal, so users can open a new terminal and run `pt --help` without sourcing a workspace-local script.
+- Added a `Pintos: Install CLI Wrappers to Shell` command that installs `pt` and `pintos-tests` into `~/.local/bin` for non-VS-Code shells.
+- Packaged dedicated `bundled/pt` and `bundled/pintos-tests` launchers with the extension and refreshed the activation events so the terminal CLI is ready as soon as a Pintos workspace is detected.
+- Updated the public and packaged README files to distinguish the Marketplace-installed flow from the source-checkout helper scripts, especially for `pintos_22.04_lab_docker` style lab environments.
+
 ## 0.1.7
 
 - Swapped the sort toggle to a gray funnel icon so the toolbar meaning is clearer at a glance.

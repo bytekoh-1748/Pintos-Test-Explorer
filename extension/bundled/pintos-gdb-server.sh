@@ -3,10 +3,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
+is_pintos_root() {
+  local candidate="$1"
+
+  [[ -e "$candidate/utils/pintos" &&
+    -f "$candidate/threads/Make.vars" &&
+    -f "$candidate/userprog/Make.vars" &&
+    -f "$candidate/vm/Make.vars" &&
+    -f "$candidate/tests/Make.tests" ]]
+}
+
 find_repo_root_from() {
   local start="$1"
   local current
   local parent
+  local candidate
 
   [[ -n "$start" ]] || return 1
   if [[ -d "$start" ]]; then
@@ -16,14 +27,16 @@ find_repo_root_from() {
   fi
 
   while true; do
-    if [[ -x "$current/utils/pintos" && -f "$current/threads/Make.vars" && -f "$current/userprog/Make.vars" && -f "$current/vm/Make.vars" && -f "$current/tests/Make.tests" ]]; then
-      printf '%s\n' "$current"
-      return 0
-    fi
-    if [[ -x "$current/pintos/utils/pintos" && -f "$current/pintos/threads/Make.vars" && -f "$current/pintos/userprog/Make.vars" && -f "$current/pintos/vm/Make.vars" && -f "$current/pintos/tests/Make.tests" ]]; then
-      printf '%s\n' "$current/pintos"
-      return 0
-    fi
+    for candidate in \
+      "$current" \
+      "$current/pintos" \
+      "$current/src" \
+      "$current/pintos/src"; do
+      if is_pintos_root "$candidate"; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
     parent="$(dirname "$current")"
     if [[ "$parent" == "$current" ]]; then
       return 1
@@ -44,7 +57,7 @@ discover_root_dir() {
     candidates+=("$PINTOS_WORKSPACE_ROOT")
   fi
   candidates+=("$PWD")
-  candidates+=("$SCRIPT_DIR/../../..")
+  candidates+=("$SCRIPT_DIR")
 
   for candidate in "${candidates[@]}"; do
     root="$(find_repo_root_from "$candidate" || true)"
@@ -54,7 +67,7 @@ discover_root_dir() {
     fi
   done
 
-  echo "Could not locate the Pintos project root. Set PINTOS_ROOT or open the Pintos repository." >&2
+  echo "Could not locate the Pintos project root. Open the repository root, the pintos/ folder, the src/ folder, or set PINTOS_ROOT." >&2
   return 1
 }
 

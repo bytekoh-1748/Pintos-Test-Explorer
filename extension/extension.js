@@ -1,6 +1,7 @@
 const vscode = require("vscode");
 const cp = require("child_process");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const PROJECTS = {
@@ -41,12 +42,23 @@ const SORT_MODE_NUMBER = "number";
 const SORT_MODE_RECENT = "recent";
 const DEFAULT_SORT_MODE = SORT_MODE_NUMBER;
 const SORT_MODE_STATE_KEY = "pintosTests.sortMode";
+const PINTOS_ROOT_LAYOUTS = [
+  [],
+  ["pintos"],
+  ["src"],
+  ["pintos", "src"]
+];
+const CLI_COMMAND_NAMES = ["pintos-tests", "pt"];
+const CLI_PROFILE_MARKER = "# Added by Pintos Test Explorer CLI installer";
+const CLI_PATH_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 
 let treeView = null;
 let provider = null;
 let outputChannel = null;
 let activeDebugServer = null;
 let extensionInstallPath = null;
+let cliRuntimeDir = null;
+const executableCache = new Map();
 
 class ProjectNode {
   constructor(project, summary) {
@@ -261,18 +273,16 @@ class PintosTreeProvider {
       return cached;
     }
 
-    const scriptPath = bundledHelperPath("pintos-test-cli.py");
     let tests = [];
     try {
-      const args = [scriptPath, "list", project.key, "--json"];
+      const args = ["list", project.key, "--json"];
       if (this.sortMode === SORT_MODE_RECENT) {
         args.push("--recent-first");
       }
-      const stdout = await execFileCapture(
-        "python3",
-        args,
-        { cwd: this.rootPath, env: makeEnv(this.rootPath) }
-      );
+      const stdout = await runBundledCli(args, {
+        cwd: this.rootPath,
+        env: makeEnv(this.rootPath)
+      });
       tests = JSON.parse(stdout);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -493,15 +503,17 @@ function getWorkspaceRoot() {
   return null;
 }
 
+function pintosRootSearchHelpText() {
+  return "Open the workspace root, the `pintos/` folder, the `src/` folder, or a child folder inside one of them.";
+}
+
 function discoverPintosRoot(startPath) {
   let current = path.resolve(startPath);
   while (true) {
-    if (isPintosRoot(current)) {
-      return current;
-    }
-    const nested = wrappedPintosRoot(current);
-    if (nested) {
-      return nested;
+    for (const candidate of pintosRootCandidates(current)) {
+      if (isPintosRoot(candidate)) {
+        return candidate;
+      }
     }
     const parent = path.dirname(current);
     if (parent === current) {
@@ -509,6 +521,10 @@ function discoverPintosRoot(startPath) {
     }
     current = parent;
   }
+}
+
+function pintosRootCandidates(basePath) {
+  return PINTOS_ROOT_LAYOUTS.map((segments) => path.join(basePath, ...segments));
 }
 
 function isPintosRoot(candidate) {
@@ -521,16 +537,292 @@ function isPintosRoot(candidate) {
   );
 }
 
-function wrappedPintosRoot(candidate) {
-  const nested = path.join(candidate, "pintos");
-  return isPintosRoot(nested) ? nested : null;
-}
-
 function bundledHelperPath(fileName) {
   if (!extensionInstallPath) {
     throw new Error("Extension install path is not initialized.");
   }
   return path.join(extensionInstallPath, "bundled", fileName);
+}
+
+function bundledCliPath(commandName) {
+  if (!cliRuntimeDir) {
+    throw new Error("CLI runtime directory is not initialized.");
+  }
+  return path.join(cliRuntimeDir, commandName);
+}
+
+function isRunnableFile(filePath) {
+  try {
+    fs.accessSync(
+      filePath,
+      process.platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK
+    );
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function commandPathCandidates(commandName) {
+  if (process.platform !== "win32" || path.extname(commandName)) {
+    return [commandName];
+  }
+
+  const extensions = (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .filter(Boolean);
+  return [commandName, ...extensions.map((ext) => `${commandName}${ext}`)];
+}
+
+function resolveCommandPath(commandName) {
+  const cacheKey = `command:${commandName}`;
+  if (executableCache.has(cacheKey)) {
+    return executableCache.get(cacheKey);
+  }
+
+  let resolved = null;
+  if (commandName) {
+    const hasSeparator =
+      commandName.includes(path.sep) || commandName.includes(path.posix.sep);
+    if (hasSeparator || path.isAbsolute(commandName)) {
+      resolved = isRunnableFile(commandName) ? commandName : null;
+    } else {
+      const pathEntries = (process.env.PATH || "")
+        .split(path.delimiter)
+        .filter(Boolean);
+      outer: for (const entry of pathEntries) {
+        for (const candidate of commandPathCandidates(commandName)) {
+          const candidatePath = path.join(entry, candidate);
+          if (isRunnableFile(candidatePath)) {
+            resolved = candidatePath;
+            break outer;
+          }
+        }
+      }
+    }
+  }
+
+  executableCache.set(cacheKey, resolved);
+  return resolved;
+}
+
+function resolvePythonRuntime() {
+  if (executableCache.has("pythonRuntime")) {
+    return executableCache.get("pythonRuntime");
+  }
+
+  let runtime = null;
+  const configuredPath = process.env.PINTOS_PYTHON_PATH;
+  if (configuredPath) {
+    const resolvedConfiguredPath = resolveCommandPath(configuredPath);
+    if (resolvedConfiguredPath) {
+      runtime = { command: resolvedConfiguredPath, args: [] };
+    }
+  }
+
+  if (!runtime && process.platform === "win32") {
+    const pyLauncher = resolveCommandPath("py");
+    if (pyLauncher) {
+      runtime = { command: pyLauncher, args: ["-3"] };
+    }
+  }
+
+  if (!runtime) {
+    const python3Path = resolveCommandPath("python3");
+    if (python3Path) {
+      runtime = { command: python3Path, args: [] };
+    }
+  }
+
+  if (!runtime) {
+    const pythonPath = resolveCommandPath("python");
+    if (pythonPath) {
+      runtime = { command: pythonPath, args: [] };
+    }
+  }
+
+  executableCache.set("pythonRuntime", runtime);
+  return runtime;
+}
+
+function resolveBashPath() {
+  if (executableCache.has("bashPath")) {
+    return executableCache.get("bashPath");
+  }
+
+  const configuredPath = process.env.PINTOS_BASH_PATH;
+  const candidates = configuredPath
+    ? [configuredPath]
+    : ["bash", "/usr/bin/bash", "/bin/bash"];
+  const resolved = candidates
+    .map((candidate) => resolveCommandPath(candidate))
+    .find(Boolean) || null;
+
+  executableCache.set("bashPath", resolved);
+  return resolved;
+}
+
+function runBundledCli(args, options) {
+  const pythonRuntime = resolvePythonRuntime();
+  if (!pythonRuntime) {
+    return Promise.reject(
+      new Error(
+        "Could not find a Python interpreter. Install Python 3 or set PINTOS_PYTHON_PATH."
+      )
+    );
+  }
+
+  return execFileCapture(
+    pythonRuntime.command,
+    [...pythonRuntime.args, bundledHelperPath("pintos-test-cli.py"), ...args],
+    options
+  );
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function writeWindowsCliWrappers(targetDir) {
+  const pintosTestsWrapper = [
+    "@echo off",
+    "setlocal",
+    "set \"SCRIPT_DIR=%~dp0\"",
+    "if defined PINTOS_PYTHON_PATH (",
+    "  \"%PINTOS_PYTHON_PATH%\" \"%SCRIPT_DIR%pintos-test-cli.py\" %*",
+    "  exit /b %errorlevel%",
+    ")",
+    "where py >nul 2>nul",
+    "if not errorlevel 1 (",
+    "  py -3 \"%SCRIPT_DIR%pintos-test-cli.py\" %*",
+    "  exit /b %errorlevel%",
+    ")",
+    "where python3 >nul 2>nul",
+    "if not errorlevel 1 (",
+    "  python3 \"%SCRIPT_DIR%pintos-test-cli.py\" %*",
+    "  exit /b %errorlevel%",
+    ")",
+    "where python >nul 2>nul",
+    "if not errorlevel 1 (",
+    "  python \"%SCRIPT_DIR%pintos-test-cli.py\" %*",
+    "  exit /b %errorlevel%",
+    ")",
+    ">&2 echo Could not find a Python interpreter. Install Python 3 or set PINTOS_PYTHON_PATH.",
+    "exit /b 127",
+    ""
+  ].join("\r\n");
+  const ptWrapper = [
+    "@echo off",
+    "setlocal",
+    "call \"%~dp0pintos-tests.cmd\" %*",
+    "exit /b %errorlevel%",
+    ""
+  ].join("\r\n");
+
+  fs.writeFileSync(path.join(targetDir, "pintos-tests.cmd"), pintosTestsWrapper, "utf8");
+  fs.writeFileSync(path.join(targetDir, "pt.cmd"), ptWrapper, "utf8");
+}
+
+function ensureCliRuntimeFiles(context) {
+  const baseDir = context.globalStorageUri?.fsPath;
+  if (!baseDir) {
+    throw new Error("Global storage is not available for CLI runtime files.");
+  }
+
+  const targetDir = path.join(baseDir, "cli");
+  const fileNames = [
+    "pintos-test-cli.py",
+    "pintos-gdb-server.sh",
+    "pintos-tests",
+    "pt"
+  ];
+
+  fs.mkdirSync(targetDir, { recursive: true });
+  for (const fileName of fileNames) {
+    const sourcePath = bundledHelperPath(fileName);
+    const targetPath = path.join(targetDir, fileName);
+    fs.copyFileSync(sourcePath, targetPath);
+    fs.chmodSync(targetPath, 0o755);
+  }
+
+  if (process.platform === "win32") {
+    writeWindowsCliWrappers(targetDir);
+  }
+
+  cliRuntimeDir = targetDir;
+}
+
+function configureTerminalCli(context) {
+  const bundledDir = path.dirname(bundledCliPath("pt"));
+  context.environmentVariableCollection.clear();
+  context.environmentVariableCollection.prepend(
+    "PATH",
+    `${bundledDir}${path.delimiter}`
+  );
+}
+
+function detectProfileFile() {
+  const shellName = path.basename(process.env.SHELL || "bash");
+  const homeDir = os.homedir();
+
+  switch (shellName) {
+    case "zsh":
+      return path.join(homeDir, ".zshrc");
+    case "bash": {
+      const bashProfile = path.join(homeDir, ".bash_profile");
+      const bashRc = path.join(homeDir, ".bashrc");
+      if (fs.existsSync(bashProfile) || !fs.existsSync(bashRc)) {
+        return bashProfile;
+      }
+      return bashRc;
+    }
+    default:
+      return path.join(homeDir, ".profile");
+  }
+}
+
+function ensurePathLine(profileFile) {
+  fs.mkdirSync(path.dirname(profileFile), { recursive: true });
+  if (!fs.existsSync(profileFile)) {
+    fs.writeFileSync(profileFile, "", "utf8");
+  }
+
+  const existing = fs.readFileSync(profileFile, "utf8");
+  const lines = existing.split(/\r?\n/);
+  if (lines.includes(CLI_PATH_LINE)) {
+    return;
+  }
+
+  const addition = `\n${CLI_PROFILE_MARKER}\n${CLI_PATH_LINE}\n`;
+  fs.appendFileSync(profileFile, addition, "utf8");
+}
+
+function installCliWrappers() {
+  const homeDir = os.homedir();
+  if (!homeDir) {
+    throw new Error("Could not determine the current home directory.");
+  }
+
+  const binDir = path.join(homeDir, ".local", "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+
+  for (const commandName of CLI_COMMAND_NAMES) {
+    const targetPath = path.join(binDir, commandName);
+    const bundledPath = bundledCliPath(commandName);
+    const wrapper = [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      `exec ${shellQuote(bundledPath)} "$@"`,
+      ""
+    ].join("\n");
+    fs.writeFileSync(targetPath, wrapper, "utf8");
+    fs.chmodSync(targetPath, 0o755);
+  }
+
+  const profileFile = detectProfileFile();
+  ensurePathLine(profileFile);
+
+  return { binDir, profileFile };
 }
 
 function makeEnv(rootPath) {
@@ -609,19 +901,12 @@ function recordHistory(rootPath, project, tests, action) {
 
 function findGdbPath() {
   if (process.env.PINTOS_GDB_PATH) {
-    return process.env.PINTOS_GDB_PATH;
-  }
-  if (fs.existsSync("/usr/bin/gdb")) {
-    return "/usr/bin/gdb";
-  }
-  const pathEntries = (process.env.PATH || "").split(path.delimiter);
-  for (const entry of pathEntries) {
-    const candidate = path.join(entry, "gdb");
-    if (fs.existsSync(candidate)) {
-      return candidate;
+    const configuredPath = resolveCommandPath(process.env.PINTOS_GDB_PATH);
+    if (configuredPath) {
+      return configuredPath;
     }
   }
-  return null;
+  return resolveCommandPath("gdb");
 }
 
 function normalizeTestSelection(nodes) {
@@ -776,11 +1061,16 @@ async function stopDebugServer() {
   }
 
   const rootPath = activeDebugServer.rootPath;
-  const stopScript = bundledHelperPath("pintos-gdb-server.sh");
+  const bashPath = resolveBashPath();
+  if (!bashPath) {
+    appendOutput("Could not stop the Pintos GDB server because `bash` was not found.\n");
+    activeDebugServer = null;
+    return;
+  }
   await new Promise((resolve) => {
     const child = spawnStreaming(
-      "bash",
-      [stopScript, "stop"],
+      bashPath,
+      [bundledHelperPath("pintos-gdb-server.sh"), "stop"],
       { cwd: rootPath, env: makeEnv(rootPath) },
       (text) => appendOutput(text)
     );
@@ -804,9 +1094,15 @@ async function debugTest(testNode) {
     );
     return;
   }
+  const bashPath = resolveBashPath();
+  if (!bashPath) {
+    vscode.window.showErrorMessage(
+      "Debugging requires `bash`, but it was not found on PATH for the active environment. Install bash or set PINTOS_BASH_PATH, then try again."
+    );
+    return;
+  }
 
   const rootPath = provider.rootPath;
-  const gdbScript = bundledHelperPath("pintos-gdb-server.sh");
   recordHistory(rootPath, testNode.project, [testNode.test], "debug");
   await stopDebugServer();
 
@@ -817,8 +1113,13 @@ async function debugTest(testNode) {
     let settled = false;
     const recentOutput = [];
     const child = spawnStreaming(
-      "bash",
-      [gdbScript, "start", testNode.project.key, testNode.test.short_name],
+      bashPath,
+      [
+        bundledHelperPath("pintos-gdb-server.sh"),
+        "start",
+        testNode.project.key,
+        testNode.test.short_name
+      ],
       { cwd: rootPath, env: makeEnv(rootPath) },
       (text) => {
         appendOutput(text);
@@ -984,13 +1285,15 @@ function activate(context) {
   if (!rootPath) {
     outputChannel.appendLine("No Pintos project root could be discovered.");
     vscode.window.showWarningMessage(
-      "Pintos Test Explorer: Could not find a Pintos project root. Open the repository root, the `pintos/` folder, or a child folder inside it."
+      `Pintos Test Explorer: Could not find a Pintos project root. ${pintosRootSearchHelpText()}`
     );
     return;
   }
 
   outputChannel.appendLine(`Pintos root: ${rootPath}`);
   outputChannel.appendLine(`Extension path: ${extensionInstallPath}`);
+  ensureCliRuntimeFiles(context);
+  configureTerminalCli(context);
   const initialSortMode = normalizeSortMode(
     context.workspaceState.get(SORT_MODE_STATE_KEY)
   );
@@ -1059,6 +1362,21 @@ function activate(context) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`Debug start failed: ${message}`);
+    }
+  });
+  registerCommand(context, "pintosTests.installCliWrappers", async () => {
+    try {
+      const { binDir, profileFile } = installCliWrappers();
+      vscode.window.showInformationMessage(
+        [
+          "Installed Pintos CLI wrappers.",
+          `New shells will pick up ${binDir} from ${profileFile}.`,
+          "In VS Code, open a new integrated terminal if `pt` is not visible yet."
+        ].join(" ")
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`CLI install failed: ${message}`);
     }
   });
   registerCommand(context, "pintosTests.openArtifact", async (artifactNode) => {

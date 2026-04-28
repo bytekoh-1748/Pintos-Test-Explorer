@@ -29,6 +29,27 @@ PROJECT_SPECS: tuple[tuple[str, str], ...] = (
     ("filesys", "File System"),
 )
 
+ROOT_LAYOUTS: tuple[tuple[str, ...], ...] = (
+    (),
+    ("pintos",),
+    ("src",),
+    ("pintos", "src"),
+)
+
+
+def iter_root_candidates(base: Path) -> list[Path]:
+    return [base.joinpath(*segments) for segments in ROOT_LAYOUTS]
+
+
+def is_pintos_root(candidate: Path) -> bool:
+    return (
+        (candidate / "utils" / "pintos").exists()
+        and (candidate / "threads" / "Make.vars").exists()
+        and (candidate / "userprog" / "Make.vars").exists()
+        and (candidate / "vm" / "Make.vars").exists()
+        and (candidate / "tests" / "Make.tests").exists()
+    )
+
 
 def discover_repo_root() -> Path:
     candidates: list[Path] = []
@@ -39,32 +60,18 @@ def discover_repo_root() -> Path:
     if env_root:
         candidates.append(Path(env_root))
     candidates.append(Path.cwd())
-    # Local development fallback when the extension folder lives inside the repo.
-    candidates.append(Path(__file__).resolve().parents[3])
+    candidates.append(Path(__file__).resolve().parent)
 
     for candidate in candidates:
         for current in [candidate, *candidate.parents]:
-            if (
-                (current / "utils" / "pintos").exists()
-                and (current / "threads" / "Make.vars").exists()
-                and (current / "userprog" / "Make.vars").exists()
-                and (current / "vm" / "Make.vars").exists()
-                and (current / "tests" / "Make.tests").exists()
-            ):
-                return current
-            nested = current / "pintos"
-            if (
-                (nested / "utils" / "pintos").exists()
-                and (nested / "threads" / "Make.vars").exists()
-                and (nested / "userprog" / "Make.vars").exists()
-                and (nested / "vm" / "Make.vars").exists()
-                and (nested / "tests" / "Make.tests").exists()
-            ):
-                return nested
+            for root_candidate in iter_root_candidates(current):
+                if is_pintos_root(root_candidate):
+                    return root_candidate
 
     raise CliError(
         "Could not find a Pintos project root. "
-        "Open the repository root, the `pintos/` folder, or set PINTOS_ROOT."
+        "Open the repository root, the `pintos/` folder, the `src/` folder, "
+        "or set PINTOS_ROOT."
     )
 
 
@@ -149,7 +156,11 @@ def make_env() -> dict[str, str]:
     assert ROOT_DIR is not None
     assert UTILS_DIR is not None
     env = os.environ.copy()
-    env["PATH"] = f"{UTILS_DIR}:{env.get('PATH', '')}"
+    env["PATH"] = os.pathsep.join(
+        part
+        for part in (str(UTILS_DIR), env.get("PATH", ""))
+        if part
+    )
     env["PINTOS_ROOT"] = str(ROOT_DIR)
     env["PINTOS_WORKSPACE_ROOT"] = str(ROOT_DIR)
     return env

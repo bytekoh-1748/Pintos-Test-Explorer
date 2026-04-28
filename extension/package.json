@@ -2,7 +2,7 @@
   "name": "pintos-test-explorer",
   "displayName": "Pintos Test Explorer",
   "description": "Run and debug Pintos test cases from a dedicated VS Code sidebar",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "publisher": "YoojinKoh",
   "license": "MIT",
   "icon": "media/extension_icon.png",
@@ -45,6 +45,8 @@
     "extension.js",
     "bundled/pintos-test-cli.py",
     "bundled/pintos-gdb-server.sh",
+    "bundled/pintos-tests",
+    "bundled/pt",
     "README.md",
     "README.ko.md",
     "CHANGELOG.md",
@@ -65,6 +67,8 @@
     "workspace"
   ],
   "activationEvents": [
+    "workspaceContains:tests/Make.tests",
+    "workspaceContains:pintos/tests/Make.tests",
     "onView:pintosTests",
     "onCommand:pintosTests.refresh",
     "onCommand:pintosTests.collapseAll",
@@ -75,6 +79,7 @@
     "onCommand:pintosTests.runProject",
     "onCommand:pintosTests.runTest",
     "onCommand:pintosTests.debugTest",
+    "onCommand:pintosTests.installCliWrappers",
     "onCommand:pintosTests.openArtifact"
   ],
   "main": "./extension.js",
@@ -180,6 +185,11 @@
           "light": "media/debug.svg",
           "dark": "media/debug.svg"
         }
+      },
+      {
+        "command": "pintosTests.installCliWrappers",
+        "title": "Install CLI Wrappers to Shell",
+        "category": "Pintos"
       },
       {
         "command": "pintosTests.openArtifact",

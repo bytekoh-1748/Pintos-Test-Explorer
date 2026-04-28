@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+if [[ -n "${PINTOS_PYTHON_PATH:-}" ]]; then
+  exec "$PINTOS_PYTHON_PATH" "$SCRIPT_DIR/pintos-test-cli.py" "$@"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$SCRIPT_DIR/pintos-test-cli.py" "$@"
+fi
+
+if command -v python >/dev/null 2>&1; then
+  exec python "$SCRIPT_DIR/pintos-test-cli.py" "$@"
+fi
+
+if command -v py >/dev/null 2>&1; then
+  exec py -3 "$SCRIPT_DIR/pintos-test-cli.py" "$@"
+fi
+
+echo "Could not find a Python interpreter. Install Python 3 or set PINTOS_PYTHON_PATH." >&2
+exit 127
