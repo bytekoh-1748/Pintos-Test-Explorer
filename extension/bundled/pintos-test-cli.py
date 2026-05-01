@@ -509,6 +509,7 @@ def sort_entries_by_history(meta: ProjectMeta, entries: list[TestEntry], *, rece
 
 def ensure_build_tree(meta: ProjectMeta) -> None:
     if (meta.build_dir / "Makefile").exists():
+        ensure_project_build_subdirs(meta)
         ensure_registered_test_output_dirs(meta)
         return
     try:
@@ -524,6 +525,7 @@ def ensure_build_tree(meta: ProjectMeta) -> None:
             f"Could not prepare the {meta.name} build directory. "
             f"`make -C {meta.project_dir}` failed."
         ) from exc
+    ensure_project_build_subdirs(meta)
     ensure_registered_test_output_dirs(meta)
 
 
@@ -547,6 +549,24 @@ def read_make_logical_lines(path: Path) -> list[str]:
         logical_lines.append(pending.strip())
 
     return logical_lines
+
+
+def load_make_variable_assignments(path: Path) -> dict[str, str]:
+    assignments: dict[str, str] = {}
+    if not path.exists():
+        return assignments
+
+    for line in read_make_logical_lines(path):
+        if "+=" in line:
+            var, rhs = line.split("+=", 1)
+            var = var.strip()
+            rhs = rhs.strip()
+            assignments[var] = f"{assignments.get(var, '')} {rhs}".strip()
+            continue
+        if "=" in line:
+            var, rhs = line.split("=", 1)
+            assignments[var.strip()] = rhs.strip()
+    return assignments
 
 
 def split_top_level_args(text: str, expected_parts: int) -> list[str]:
@@ -589,6 +609,23 @@ def split_top_level_words(text: str) -> list[str]:
         parts.append("".join(current))
 
     return parts
+
+
+def build_subdirs_for_project(meta: ProjectMeta) -> list[str]:
+    assignments = load_make_variable_assignments(meta.project_dir / "Make.vars")
+    subdirs: list[str] = []
+    for variable_name in ("KERNEL_SUBDIRS", "TEST_SUBDIRS"):
+        subdirs.extend(evaluate_make_expression(assignments.get(variable_name, ""), assignments))
+    subdirs.append("lib/user")
+    return list(dict.fromkeys(subdir for subdir in subdirs if subdir))
+
+
+def ensure_project_build_subdirs(meta: ProjectMeta) -> None:
+    if not meta.build_dir.exists():
+        return
+
+    for subdir in build_subdirs_for_project(meta):
+        (meta.build_dir / Path(subdir)).mkdir(parents=True, exist_ok=True)
 
 
 def load_make_assignments(meta: ProjectMeta) -> dict[str, str]:

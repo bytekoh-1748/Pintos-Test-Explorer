@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Fixed stale Pintos build directories where `build/Makefile` existed but required subdirectories such as `threads/` were missing, causing run/debug actions to fail while generating `threads/kernel.lds.s`.
+- Mirrored the build-directory repair in the bundled `pt` / `pintos-tests` CLI so sidebar and terminal workflows behave consistently.
+
 ## 0.2.2
 
 - Added an inline `Open Test Source` button to each test row and placed it to the left of the debug action.

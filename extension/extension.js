@@ -628,6 +628,90 @@ function ensureTestBuildOutputDirectories(rootPath, project, tests) {
   }
 }
 
+function readMakeLogicalLines(filePath) {
+  const logicalLines = [];
+  let pending = "";
+  const text = fs.readFileSync(filePath, "utf8");
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.split("#", 1)[0].trimEnd();
+    if (!line && !pending) {
+      continue;
+    }
+    if (line.endsWith("\\")) {
+      pending += `${line.slice(0, -1)} `;
+      continue;
+    }
+    const combined = `${pending}${line}`.trim();
+    pending = "";
+    if (combined) {
+      logicalLines.push(combined);
+    }
+  }
+
+  if (pending.trim()) {
+    logicalLines.push(pending.trim());
+  }
+
+  return logicalLines;
+}
+
+function loadMakeVariableAssignments(filePath) {
+  const assignments = {};
+  if (!fs.existsSync(filePath)) {
+    return assignments;
+  }
+
+  for (const line of readMakeLogicalLines(filePath)) {
+    if (line.includes("+=")) {
+      const [variableName, expression] = line.split("+=", 2);
+      const key = variableName.trim();
+      const value = expression.trim();
+      assignments[key] = `${assignments[key] || ""} ${value}`.trim();
+      continue;
+    }
+    if (line.includes("=")) {
+      const [variableName, expression] = line.split("=", 2);
+      assignments[variableName.trim()] = expression.trim();
+    }
+  }
+
+  return assignments;
+}
+
+function evaluateMakeWords(expression, assignments, seen = new Set()) {
+  const expanded = String(expression || "").replace(/\$\(([^)]+)\)/g, (_match, variableName) => {
+    const key = String(variableName || "").trim();
+    if (!key || seen.has(key)) {
+      return "";
+    }
+    return evaluateMakeWords(assignments[key] || "", assignments, new Set([...seen, key])).join(" ");
+  });
+  return expanded.split(/\s+/).filter(Boolean);
+}
+
+function projectBuildSubdirectories(rootPath, project) {
+  const makeVarsPath = path.join(rootPath, ...project.projectDir, "Make.vars");
+  const assignments = loadMakeVariableAssignments(makeVarsPath);
+  const subdirectories = [
+    ...evaluateMakeWords(assignments.KERNEL_SUBDIRS, assignments),
+    ...evaluateMakeWords(assignments.TEST_SUBDIRS, assignments),
+    "lib/user"
+  ];
+  return [...new Set(subdirectories.filter(Boolean))];
+}
+
+function ensureProjectBuildDirectories(rootPath, project) {
+  const buildRoot = path.join(rootPath, ...project.buildDir);
+  if (!fs.existsSync(buildRoot)) {
+    return;
+  }
+
+  for (const subdirectory of projectBuildSubdirectories(rootPath, project)) {
+    fs.mkdirSync(path.join(buildRoot, ...subdirectory.split("/")), { recursive: true });
+  }
+}
+
 function findNodeArtifactFiles(nodes) {
   const files = new Set();
   for (const node of normalizeTestSelection(nodes)) {
@@ -1634,6 +1718,7 @@ function normalizeTestSelection(nodes) {
 async function ensureProjectBuildTree(project) {
   const buildMakefile = path.join(provider.rootPath, ...project.buildDir, "Makefile");
   if (fs.existsSync(buildMakefile)) {
+    ensureProjectBuildDirectories(provider.rootPath, project);
     const tests = await provider.getTestsForProject(project);
     ensureTestBuildOutputDirectories(provider.rootPath, project, tests);
     return;
@@ -1645,6 +1730,7 @@ async function ensureProjectBuildTree(project) {
     cwd: provider.rootPath,
     env: makeEnv(provider.rootPath)
   });
+  ensureProjectBuildDirectories(provider.rootPath, project);
   const tests = await provider.getTestsForProject(project);
   ensureTestBuildOutputDirectories(provider.rootPath, project, tests);
 }
