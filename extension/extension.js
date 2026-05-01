@@ -586,6 +586,33 @@ function artifactPathsForTest(rootPath, project, test) {
   return artifactPaths;
 }
 
+function testSourcePathCandidates(rootPath, test) {
+  const candidates = [];
+
+  if (typeof test?.source_path === "string" && test.source_path.trim()) {
+    const sourcePath = test.source_path.trim();
+    candidates.push(
+      path.isAbsolute(sourcePath)
+        ? sourcePath
+        : path.join(rootPath, ...sourcePath.split(/[\\/]+/).filter(Boolean))
+    );
+  }
+
+  const basePath = path.join(rootPath, ...String(test?.full_name || "").split("/").filter(Boolean));
+  candidates.push(`${basePath}.c`);
+
+  return [...new Set(candidates)];
+}
+
+function resolveExistingTestSourcePath(rootPath, test) {
+  for (const candidate of testSourcePathCandidates(rootPath, test)) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 function ensureTestBuildOutputDirectories(rootPath, project, tests) {
   const buildRoot = path.join(rootPath, ...project.buildDir);
   if (!fs.existsSync(buildRoot)) {
@@ -2015,6 +2042,27 @@ async function clearAllArtifacts() {
   );
 }
 
+async function openTestSource(testNode) {
+  if (!testNode || testNode.nodeType !== "test") {
+    vscode.window.showWarningMessage("Select a test to open its source file.");
+    return;
+  }
+
+  const sourceFilePath = resolveExistingTestSourcePath(provider.rootPath, testNode.test);
+  if (!sourceFilePath) {
+    const tried = testSourcePathCandidates(provider.rootPath, testNode.test)
+      .map((candidate) => path.relative(provider.rootPath, candidate))
+      .join(", ");
+    vscode.window.showWarningMessage(
+      `Could not find a source file for ${testNode.test.short_name}. Looked for ${tried}.`
+    );
+    return;
+  }
+
+  const document = await vscode.workspace.openTextDocument(sourceFilePath);
+  await vscode.window.showTextDocument(document, { preview: false });
+}
+
 function customGroupPlaceholderSelector(project) {
   return `tests/${project.key}/${CUSTOM_TESTS_DIR_NAME}/example-test`;
 }
@@ -2904,6 +2952,14 @@ function activate(context) {
     }
     const document = await vscode.workspace.openTextDocument(artifactNode.filePath);
     await vscode.window.showTextDocument(document, { preview: false });
+  });
+  registerCommand(context, "pintosTests.openTestSource", async (testNode) => {
+    try {
+      await openTestSource(testNode);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Could not open the test source: ${message}`);
+    }
   });
   registerCommand(context, "pintosTests.deleteCustomTest", async (node) => {
     try {

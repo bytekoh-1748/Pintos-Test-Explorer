@@ -154,6 +154,7 @@ class TestEntry:
     full_name: str
     short_name: str
     group: str
+    source_path: str | None = None
 
 
 PROJECTS: dict[str, ProjectMeta] = {}
@@ -646,6 +647,191 @@ def evaluate_make_expression(expr: str, assignments: dict[str, str]) -> list[str
     return [token]
 
 
+SOURCE_FILE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".s", ".S")
+
+
+def resolve_root_relative_path(value: str) -> Path:
+    candidate = Path(value)
+    return candidate if candidate.is_absolute() else ROOT_DIR / candidate
+
+
+def source_files_for_project(
+    meta: ProjectMeta,
+    assignments: dict[str, str] | None = None,
+) -> list[str]:
+    resolved_assignments = assignments if assignments is not None else load_make_assignments(meta)
+    candidates: list[str] = []
+    seen: set[str] = set()
+    variable_prefix = f"tests/{meta.name}"
+
+    for variable_name, expression in resolved_assignments.items():
+        if not variable_name.endswith("_SRC"):
+            continue
+        if not variable_name.startswith(variable_prefix):
+            continue
+        for item in evaluate_make_expression(expression, resolved_assignments):
+            if Path(item).suffix not in SOURCE_FILE_SUFFIXES:
+                continue
+            if item in seen:
+                continue
+            seen.add(item)
+            candidates.append(item)
+
+    project_tests_dir = ROOT_DIR / "tests" / meta.name
+    if project_tests_dir.exists():
+        for path in sorted(project_tests_dir.rglob("*")):
+            if not path.is_file() or path.suffix not in SOURCE_FILE_SUFFIXES:
+                continue
+            relative = str(path.relative_to(ROOT_DIR))
+            if relative in seen:
+                continue
+            seen.add(relative)
+            candidates.append(relative)
+
+    return candidates
+
+
+def read_text_if_exists(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def find_threads_registered_function(short_name: str) -> str | None:
+    tests_c_path = ROOT_DIR / "tests" / "threads" / "tests.c"
+    text = read_text_if_exists(tests_c_path)
+    if not text:
+        return None
+
+    pattern = re.compile(
+        rf'\{{\s*"{re.escape(short_name)}"\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}}'
+    )
+    match = pattern.search(text)
+    return match.group(1) if match else None
+
+
+def find_source_file_containing_symbol(
+    meta: ProjectMeta,
+    symbol: str,
+    assignments: dict[str, str] | None = None,
+    *,
+    require_definition: bool = False,
+) -> str | None:
+    if not symbol:
+        return None
+
+    candidates = source_files_for_project(meta, assignments)
+    if require_definition:
+        pattern = re.compile(rf"\b{re.escape(symbol)}\s*\(")
+    else:
+        pattern = re.compile(rf'("{re.escape(symbol)}"|\b{re.escape(symbol)}\b)')
+
+    matches: list[tuple[tuple[int, int, int], str]] = []
+    for candidate in candidates:
+        absolute_path = resolve_root_relative_path(candidate)
+        text = read_text_if_exists(absolute_path)
+        if not text or not pattern.search(text):
+            continue
+        match_score = (
+            int(absolute_path.name != "tests.c"),
+            int(absolute_path.name != "tests.h"),
+            int(symbol.replace("-", "_") in absolute_path.stem),
+        )
+        matches.append((match_score, candidate))
+
+    if not matches:
+        return None
+
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return matches[0][1]
+
+
+def score_source_candidate(meta: ProjectMeta, full_name: str, candidate: str) -> tuple[int, int, int, int, int, int]:
+    candidate_path = Path(candidate)
+    absolute_path = resolve_root_relative_path(candidate)
+    full_name_path = Path(full_name)
+    expected_c_path = full_name_path.with_suffix(".c")
+    expected_any_path = full_name_path.with_suffix(candidate_path.suffix)
+
+    return (
+        int(absolute_path.exists()),
+        int(candidate_path == expected_c_path),
+        int(candidate_path == expected_any_path),
+        int(candidate_path.stem == full_name_path.name),
+        int(candidate_path.parent == full_name_path.parent),
+        int(candidate.startswith(f"tests/{meta.name}/")),
+    )
+
+
+def resolve_test_source_path(
+    meta: ProjectMeta,
+    full_name: str,
+    short_name: str,
+    assignments: dict[str, str] | None = None,
+) -> str | None:
+    resolved_assignments = assignments if assignments is not None else load_make_assignments(meta)
+    source_var = f"{full_name}_SRC"
+    candidates: list[str] = []
+
+    if source_var in resolved_assignments:
+        for item in evaluate_make_expression(resolved_assignments[source_var], resolved_assignments):
+            if Path(item).suffix not in SOURCE_FILE_SUFFIXES:
+                continue
+            candidates.append(item)
+
+    default_candidate = f"{full_name}.c"
+    if default_candidate not in candidates:
+        candidates.append(default_candidate)
+
+    if meta.name == "threads":
+        thread_function_candidates = []
+        registered_function = find_threads_registered_function(short_name)
+        if registered_function:
+            thread_function_candidates.append(registered_function)
+        derived_function = thread_test_function_name(short_name)
+        if derived_function not in thread_function_candidates:
+            thread_function_candidates.append(derived_function)
+
+        for symbol in thread_function_candidates:
+            thread_source = find_source_file_containing_symbol(
+                meta,
+                symbol,
+                resolved_assignments,
+                require_definition=True,
+            )
+            if thread_source:
+                return thread_source
+
+    existing = [candidate for candidate in candidates if resolve_root_relative_path(candidate).exists()]
+    if not existing:
+        return None
+
+    return max(existing, key=lambda candidate: score_source_candidate(meta, full_name, candidate))
+
+
+def build_test_entries(
+    meta: ProjectMeta,
+    full_names: list[str],
+    assignments: dict[str, str] | None = None,
+) -> list[TestEntry]:
+    entries: list[TestEntry] = []
+    for index, full_name in enumerate(full_names, start=1):
+        prefix = next(prefix for prefix in meta.prefixes if full_name.startswith(prefix))
+        short_name = full_name[len(prefix):]
+        group = short_name.split("/", 1)[0] if "/" in short_name else "main"
+        entries.append(
+            TestEntry(
+                index=index,
+                full_name=full_name,
+                short_name=short_name,
+                group=group,
+                source_path=resolve_test_source_path(meta, full_name, short_name, assignments),
+            )
+        )
+    return entries
+
+
 def parse_tests_from_makefiles(meta: ProjectMeta) -> list[TestEntry]:
     assignments = load_make_assignments(meta)
     full_names: list[str] = []
@@ -665,21 +851,7 @@ def parse_tests_from_makefiles(meta: ProjectMeta) -> list[TestEntry]:
             seen.add(item)
             full_names.append(item)
 
-    entries: list[TestEntry] = []
-    for index, full_name in enumerate(full_names, start=1):
-        prefix = next(prefix for prefix in meta.prefixes if full_name.startswith(prefix))
-        short_name = full_name[len(prefix):]
-        group = short_name.split("/", 1)[0] if "/" in short_name else "main"
-        entries.append(
-            TestEntry(
-                index=index,
-                full_name=full_name,
-                short_name=short_name,
-                group=group,
-            )
-        )
-
-    return entries
+    return build_test_entries(meta, full_names, assignments)
 
 
 def fetch_tests_via_make(meta: ProjectMeta) -> list[TestEntry]:
@@ -725,21 +897,7 @@ def fetch_tests_via_make(meta: ProjectMeta) -> list[TestEntry]:
         seen.add(item)
         full_names.append(item)
 
-    entries: list[TestEntry] = []
-    for index, full_name in enumerate(full_names, start=1):
-        prefix = next(prefix for prefix in meta.prefixes if full_name.startswith(prefix))
-        short_name = full_name[len(prefix):]
-        group = short_name.split("/", 1)[0] if "/" in short_name else "main"
-        entries.append(
-            TestEntry(
-                index=index,
-                full_name=full_name,
-                short_name=short_name,
-                group=group,
-            )
-        )
-
-    return entries
+    return build_test_entries(meta, full_names, load_make_assignments(meta))
 
 
 def fetch_tests(meta: ProjectMeta, *, recent_first: bool = False) -> list[TestEntry]:
@@ -803,6 +961,7 @@ def entry_payload(entry: TestEntry) -> dict[str, object]:
         "full_name": entry.full_name,
         "short_name": entry.short_name,
         "group": entry.group,
+        "source_path": entry.source_path,
     }
 
 

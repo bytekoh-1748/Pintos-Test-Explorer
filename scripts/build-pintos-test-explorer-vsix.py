@@ -86,7 +86,7 @@ def rewrite_marketplace_markdown(text: str, pkg: dict) -> str:
 
 
 def manifest_xml(pkg: dict) -> str:
-    repository_url = escape(normalize_link(pkg.get("repository")))
+    repository_url = escape(normalize_repository_web_url(normalize_link(pkg.get("repository"))))
     bugs_url = escape(normalize_link(pkg.get("bugs")))
     homepage = escape(pkg.get("homepage", ""))
     keywords = escape(",".join(pkg.get("keywords", [])))

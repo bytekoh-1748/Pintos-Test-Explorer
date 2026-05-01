@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Added an inline `Open Test Source` button to each test row and placed it to the left of the debug action.
+- Resolved source jumps from real test definitions instead of only guessed filenames, including `Make.tests` `_SRC` mappings and thread-test registrations such as `alarm-single -> alarm-wait.c`.
+
 ## 0.2.1
 
 - Fixed `Make.tests` parsing for mixed expressions such as `$(addprefix ...)` plus later `+=` entries, which restores correct discovery in wrapper workspaces like `pintos_22.04_lab_docker`.

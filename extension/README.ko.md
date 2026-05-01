@@ -41,7 +41,7 @@ PINTOS_ROOT=/path/to/pintos pt list threads
 
 1. 창을 한 번 다시 로드합니다.
 2. Activity Bar의 `Pintos` 뷰를 엽니다.
-3. 프로젝트를 펼쳐 테스트 행에서 바로 run 또는 debug 합니다.
+3. 프로젝트를 펼쳐 테스트 행에서 실제 소스 열기, run, debug를 바로 사용합니다.
 4. 폴더나 테스트를 체크한 뒤 `Run Checked Tests`를 사용합니다.
 5. 필요하면 트리에서 `output`, `result`, `errors` artifact를 바로 엽니다.
 

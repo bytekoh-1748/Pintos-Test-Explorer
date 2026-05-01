@@ -2,7 +2,7 @@
   "name": "pintos-test-explorer",
   "displayName": "Pintos Test Explorer",
   "description": "Run and debug Pintos test cases from a dedicated VS Code sidebar",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "YoojinKoh",
   "license": "MIT",
   "icon": "media/extension_icon.png",
@@ -59,6 +59,7 @@
     "media/collapse.svg",
     "media/create-test.svg",
     "media/debug.svg",
+    "media/open-file.svg",
     "media/pintos.svg",
     "media/play.svg",
     "media/range.svg",
@@ -83,6 +84,7 @@
     "onCommand:pintosTests.runGroup",
     "onCommand:pintosTests.runTest",
     "onCommand:pintosTests.debugTest",
+    "onCommand:pintosTests.openTestSource",
     "onCommand:pintosTests.createCustomTestCase",
     "onCommand:pintosTests.renameCustomTest",
     "onCommand:pintosTests.deleteCustomTest",
@@ -196,6 +198,15 @@
         "icon": {
           "light": "media/debug.svg",
           "dark": "media/debug.svg"
+        }
+      },
+      {
+        "command": "pintosTests.openTestSource",
+        "title": "Open Test Source",
+        "category": "Pintos",
+        "icon": {
+          "light": "media/open-file.svg",
+          "dark": "media/open-file.svg"
         }
       },
       {
@@ -328,24 +339,34 @@
           "group": "navigation@4"
         },
         {
-          "command": "pintosTests.debugTest",
+          "command": "pintosTests.openTestSource",
           "when": "view == pintosTests && viewItem == pintosTest",
           "group": "inline@1"
         },
         {
-          "command": "pintosTests.debugTest",
+          "command": "pintosTests.openTestSource",
           "when": "view == pintosTests && viewItem == pintosCustomTest",
           "group": "inline@1"
         },
         {
-          "command": "pintosTests.runTest",
+          "command": "pintosTests.debugTest",
           "when": "view == pintosTests && viewItem == pintosTest",
           "group": "inline@2"
         },
         {
-          "command": "pintosTests.runTest",
+          "command": "pintosTests.debugTest",
           "when": "view == pintosTests && viewItem == pintosCustomTest",
           "group": "inline@2"
+        },
+        {
+          "command": "pintosTests.runTest",
+          "when": "view == pintosTests && viewItem == pintosTest",
+          "group": "inline@3"
+        },
+        {
+          "command": "pintosTests.runTest",
+          "when": "view == pintosTests && viewItem == pintosCustomTest",
+          "group": "inline@3"
         }
       ]
     }

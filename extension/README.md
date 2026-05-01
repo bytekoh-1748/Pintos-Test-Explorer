@@ -41,7 +41,7 @@ PINTOS_ROOT=/path/to/pintos pt list threads
 
 1. Reload the window once.
 2. Open the `Pintos` activity-bar view.
-3. Expand a project and run or debug a test from its row.
+3. Expand a project and use the row actions to open the real test source, run, or debug a test.
 4. Check folders or tests and use `Run Checked Tests`.
 5. Open `output`, `result`, or `errors` artifacts directly from the tree.
 
