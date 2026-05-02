@@ -4,6 +4,12 @@ Languages: English | [한국어](README.ko.md)
 
 Pintos Test Explorer adds a dedicated VS Code sidebar for Pintos tests and ships a matching CLI through `pt` and `pintos-tests`. The sidebar and CLI share the same bundled helper, so discovery, run/debug behavior, artifact handling, and root detection stay aligned.
 
+## Demo
+
+[![Watch the demo video](https://img.youtube.com/vi/FyJ1jKg3zNk/hqdefault.jpg)](https://youtu.be/FyJ1jKg3zNk)
+
+Watch the walkthrough: [YouTube demo video](https://youtu.be/FyJ1jKg3zNk)
+
 ## Quick Summary
 
 ```text
@@ -11,16 +17,10 @@ Pintos Test Explorer adds a dedicated VS Code sidebar for Pintos tests and ships
 2. Run, debug, reset, and inspect artifacts from VS Code or the terminal.
 3. Work from direct Pintos roots or wrapper layouts such as pintos_22.04_lab_docker.
 4. Ignore stale old group JSON so built-in folders like Alarm Clock keep their intended names.
+5. Keep repeated checkbox selection responsive by reusing discovered test data until a real refresh is needed.
 ```
 
-```mermaid
-flowchart LR
-    A["Pintos View"] --> C["bundled pintos-test-cli.py"]
-    B["pt / pintos-tests"] --> C
-    C --> D["tests/*/Make.tests"]
-    C --> E["make / Pintos build tree"]
-    C --> F["output / result / errors artifacts"]
-```
+The `Pintos` view and the `pt` / `pintos-tests` terminal commands share the same bundled helper. Both paths read `tests/*/Make.tests`, run through the same Pintos build tree, and inspect the same `output`, `result`, and `errors` artifacts.
 
 ## Supported Layouts
 
@@ -53,6 +53,8 @@ pintos-tests --help
 ```
 
 If you want shell-wide wrappers outside VS Code, run `Pintos: Install CLI Wrappers to Shell`.
+
+Debug sessions additionally need `gdb` and Microsoft C/C++ (`ms-vscode.cpptools`). Running tests, listing tests, resetting artifacts, and using the CLI do not require C/C++; if it is missing, Pintos Test Explorer asks for it only when you start Debug.
 
 ## Terminal Workflow
 

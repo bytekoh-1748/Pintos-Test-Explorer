@@ -12,6 +12,8 @@ Pintos Test Explorer is a VS Code sidebar extension plus a bundled terminal CLI 
 3. Handle wrapper layouts such as pintos_22.04_lab_docker without hard-coding one folder name.
 4. Ignore stale old group JSON so built-in folders like Alarm Clock keep their intended names.
 5. Keep full compiler output in the errors artifact even when a run fails during build.
+6. Keep repeated checkbox selection fast by reusing discovered test data until a real refresh is needed.
+7. Ask for Microsoft C/C++ only when a user starts Debug, not during extension install.
 ```
 
 ```mermaid

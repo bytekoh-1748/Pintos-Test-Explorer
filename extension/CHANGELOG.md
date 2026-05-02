@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4
+
+- Kept checkbox selection responsive by reusing already discovered test data instead of clearing discovery caches after every checkbox event.
+- Preserved fast checkbox clicks made while test discovery is still loading by showing pending checkbox state immediately and applying folder cascades in event order.
+- Shared in-flight project discovery so repeated clicks do not spawn duplicate helper processes while a project is still loading.
+- Removed the install-time Microsoft C/C++ dependency prompt; Pintos run/list features no longer ask for it, and Debug now explains the requirement only when the user starts a debug session.
+
 ## 0.2.3
 
 - Fixed stale Pintos build directories where `build/Makefile` existed but required subdirectories such as `threads/` were missing, causing run/debug actions to fail while generating `threads/kernel.lds.s`.

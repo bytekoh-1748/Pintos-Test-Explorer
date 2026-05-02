@@ -56,6 +56,7 @@ const BUILD_ERROR_RESULT = "BUILD_ERROR";
 const CUSTOM_TESTS_DIR_NAME = "custom";
 const CUSTOM_GROUP_KEY_PREFIX = "custom-group:";
 const CUSTOM_SCAFFOLD_MARKER_LINE = "# Added by Pintos Test Explorer";
+const CPPTOOLS_EXTENSION_ID = "ms-vscode.cpptools";
 const ENABLE_LEGACY_CUSTOM_GROUP_RULES = false;
 const DESCENDANT_ROOT_SEARCH_MAX_DEPTH = 4;
 const DESCENDANT_ROOT_IGNORED_DIRS = new Set([
@@ -152,18 +153,38 @@ class PintosTreeProvider {
     this.testCache = new Map();
     this.testNodeCache = new Map();
     this.customGroupCache = new Map();
+    this.testLoadPromises = new Map();
+    this.testNodeLoadPromises = new Map();
     this.checkedTestKeys = new Set();
+    this.pendingCheckboxStates = new Map();
+    this.checkboxChangeQueue = Promise.resolve();
+    this.checkboxGeneration = 0;
+    this.cacheGeneration = 0;
+    this.nextCheckboxUpdateId = 0;
     this.sortMode = normalizeSortMode(sortMode);
   }
 
   refresh(options = {}) {
     if (options.clearChecked) {
       this.checkedTestKeys.clear();
+      this.cancelPendingCheckboxUpdates();
     }
+    this.cacheGeneration += 1;
     this.testCache.clear();
     this.testNodeCache.clear();
     this.customGroupCache.clear();
+    this.testLoadPromises.clear();
+    this.testNodeLoadPromises.clear();
     this._onDidChangeTreeData.fire();
+  }
+
+  refreshView() {
+    this._onDidChangeTreeData.fire();
+  }
+
+  cancelPendingCheckboxUpdates() {
+    this.checkboxGeneration += 1;
+    this.pendingCheckboxStates.clear();
   }
 
   getSortMode() {
@@ -188,20 +209,125 @@ class PintosTreeProvider {
     return this.checkedTestKeys.has(this.makeTestKey(project, test));
   }
 
+  nodeCheckboxKey(node) {
+    if (node?.nodeType === "project") {
+      return `project:${node.project.key}`;
+    }
+    if (node?.nodeType === "group") {
+      return `group:${node.project.key}:${groupPathKey(node.groupSegments)}`;
+    }
+    if (node?.nodeType === "test") {
+      return `test:${this.makeTestKey(node.project, node.test)}`;
+    }
+    return null;
+  }
+
+  beginCheckboxUpdate(node, checked) {
+    const key = this.nodeCheckboxKey(node);
+    if (!key) {
+      return null;
+    }
+    const update = {
+      key,
+      updateId: this.nextCheckboxUpdateId += 1
+    };
+    this.pendingCheckboxStates.set(key, { checked, updateId: update.updateId });
+    return update;
+  }
+
+  finishCheckboxUpdate(update) {
+    if (!update) {
+      return false;
+    }
+    const pending = this.pendingCheckboxStates.get(update.key);
+    if (!pending || pending.updateId !== update.updateId) {
+      return false;
+    }
+    this.pendingCheckboxStates.delete(update.key);
+    return true;
+  }
+
+  pendingCheckboxState(node) {
+    const key = this.nodeCheckboxKey(node);
+    const pending = key ? this.pendingCheckboxStates.get(key) : null;
+    if (!pending) {
+      return undefined;
+    }
+    return checkboxStateFromBoolean(pending.checked);
+  }
+
+  enqueueCheckboxChanges(items) {
+    const generation = this.checkboxGeneration;
+    const preparedItems = items
+      .map(([node, state]) => ({
+        node,
+        checked: state === vscode.TreeItemCheckboxState.Checked,
+        update: this.beginCheckboxUpdate(
+          node,
+          state === vscode.TreeItemCheckboxState.Checked
+        )
+      }))
+      .filter((item) => item.update);
+
+    if (!preparedItems.length) {
+      return this.checkboxChangeQueue;
+    }
+
+    this.refreshView();
+
+    const operation = async () => {
+      let changed = false;
+      let pendingChanged = false;
+      for (const item of preparedItems) {
+        if (generation !== this.checkboxGeneration) {
+          pendingChanged = this.finishCheckboxUpdate(item.update) || pendingChanged;
+          continue;
+        }
+        try {
+          changed = (await this.setCheckedForNode(item.node, item.checked)) || changed;
+        } finally {
+          pendingChanged = this.finishCheckboxUpdate(item.update) || pendingChanged;
+        }
+      }
+      if (changed || pendingChanged) {
+        this.refreshView();
+      }
+    };
+
+    const next = this.checkboxChangeQueue.catch(() => {}).then(operation);
+    this.checkboxChangeQueue = next.catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      appendOutput(`Failed to update checkbox state: ${message}\n`);
+      for (const item of preparedItems) {
+        this.finishCheckboxUpdate(item.update);
+      }
+      this.refreshView();
+    });
+    return next;
+  }
+
+  async whenCheckboxIdle() {
+    await this.checkboxChangeQueue.catch(() => {});
+  }
+
   setChecked(testNode, checked) {
     const key = this.makeTestKey(testNode.project, testNode.test);
+    const wasChecked = this.checkedTestKeys.has(key);
     if (checked) {
       this.checkedTestKeys.add(key);
     } else {
       this.checkedTestKeys.delete(key);
     }
+    return wasChecked !== checked;
   }
 
   async setCheckedForNode(node, checked) {
     const testNodes = await this.getDescendantTestNodes(node);
+    let changed = false;
     for (const testNode of testNodes) {
-      this.setChecked(testNode, checked);
+      changed = this.setChecked(testNode, checked) || changed;
     }
+    return changed;
   }
 
   clearChecked() {
@@ -209,6 +335,7 @@ class PintosTreeProvider {
   }
 
   clearCheckedNodes(nodes) {
+    this.cancelPendingCheckboxUpdates();
     for (const node of nodes) {
       if (node?.nodeType === "test") {
         this.checkedTestKeys.delete(this.makeTestKey(node.project, node.test));
@@ -218,6 +345,7 @@ class PintosTreeProvider {
   }
 
   async getCheckedNodes() {
+    await this.whenCheckboxIdle();
     const selected = [];
     for (const key of PROJECT_ORDER) {
       const project = PROJECTS[key];
@@ -270,7 +398,8 @@ class PintosTreeProvider {
       item.description = summaryDescription(element.summary);
       item.tooltip = summaryTooltip(element.project.label, element.summary);
       item.contextValue = "pintosProject";
-      item.checkboxState = summaryCheckboxState(element.summary);
+      item.checkboxState =
+        this.pendingCheckboxState(element) ?? summaryCheckboxState(element.summary);
       item.iconPath = new vscode.ThemeIcon(
         "folder-library",
         new vscode.ThemeColor(summaryColor(element.summary))
@@ -295,7 +424,8 @@ class PintosTreeProvider {
           : element.groupKind === "custom-group-rule"
             ? "pintosCustomGroupRule"
             : "pintosGroup";
-      item.checkboxState = summaryCheckboxState(element.summary);
+      item.checkboxState =
+        this.pendingCheckboxState(element) ?? summaryCheckboxState(element.summary);
       item.iconPath = new vscode.ThemeIcon(
         "folder",
         new vscode.ThemeColor(summaryColor(element.summary))
@@ -317,9 +447,9 @@ class PintosTreeProvider {
       item.tooltip = buildTestTooltip(element);
       item.contextValue = element.isCustomTest ? "pintosCustomTest" : "pintosTest";
       item.iconPath = statusIcon(element.status);
-      item.checkboxState = this.isChecked(element.project, element.test)
-        ? vscode.TreeItemCheckboxState.Checked
-        : vscode.TreeItemCheckboxState.Unchecked;
+      item.checkboxState =
+        this.pendingCheckboxState(element) ??
+        checkboxStateFromBoolean(this.isChecked(element.project, element.test));
       return item;
     }
 
@@ -429,44 +559,87 @@ class PintosTreeProvider {
   }
 
   async getTestsForProject(project) {
-    const cached = this.testCache.get(project.key);
-    if (cached) {
-      return cached;
+    if (this.testCache.has(project.key)) {
+      return this.testCache.get(project.key);
     }
 
-    let tests = [];
-    try {
-      const args = ["list", project.key, "--json"];
-      if (this.sortMode === SORT_MODE_RECENT) {
-        args.push("--recent-first");
-      }
-      const stdout = await runBundledCli(args, {
-        cwd: this.rootPath,
-        env: makeEnv(this.rootPath)
-      });
-      tests = JSON.parse(stdout);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      appendOutput(`Failed to load ${project.key} tests: ${message}\n`);
+    const loading = this.testLoadPromises.get(project.key);
+    if (loading) {
+      return loading;
     }
-    this.testCache.set(project.key, tests);
-    return tests;
+
+    const generation = this.cacheGeneration;
+    const promise = (async () => {
+      let tests = [];
+      try {
+        const args = ["list", project.key, "--json"];
+        if (this.sortMode === SORT_MODE_RECENT) {
+          args.push("--recent-first");
+        }
+        const stdout = await runBundledCli(args, {
+          cwd: this.rootPath,
+          env: makeEnv(this.rootPath)
+        });
+        const parsed = JSON.parse(stdout);
+        tests = Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        appendOutput(`Failed to load ${project.key} tests: ${message}\n`);
+      }
+      if (generation === this.cacheGeneration) {
+        this.testCache.set(project.key, tests);
+      }
+      return tests;
+    })();
+
+    this.testLoadPromises.set(project.key, promise);
+    promise.then(() => {
+      if (this.testLoadPromises.get(project.key) === promise) {
+        this.testLoadPromises.delete(project.key);
+      }
+    }, () => {
+      if (this.testLoadPromises.get(project.key) === promise) {
+        this.testLoadPromises.delete(project.key);
+      }
+    });
+    return promise;
   }
 
   async getTestNodesForProject(project) {
-    const cached = this.testNodeCache.get(project.key);
-    if (cached) {
-      return cached;
+    if (this.testNodeCache.has(project.key)) {
+      return this.testNodeCache.get(project.key);
     }
 
-    const tests = await this.getTestsForProject(project);
-    const customGroups = this.getCustomGroupsForProject(project);
-    const assignments = assignGroupsToTests(project, tests, customGroups);
-    const nodes = tests.map((test) =>
-      this.buildTestNode(project, test, assignments.get(test.full_name) || [])
-    );
-    this.testNodeCache.set(project.key, nodes);
-    return nodes;
+    const loading = this.testNodeLoadPromises.get(project.key);
+    if (loading) {
+      return loading;
+    }
+
+    const generation = this.cacheGeneration;
+    const promise = (async () => {
+      const tests = await this.getTestsForProject(project);
+      const customGroups = this.getCustomGroupsForProject(project);
+      const assignments = assignGroupsToTests(project, tests, customGroups);
+      const nodes = tests.map((test) =>
+        this.buildTestNode(project, test, assignments.get(test.full_name) || [])
+      );
+      if (generation === this.cacheGeneration) {
+        this.testNodeCache.set(project.key, nodes);
+      }
+      return nodes;
+    })();
+
+    this.testNodeLoadPromises.set(project.key, promise);
+    promise.then(() => {
+      if (this.testNodeLoadPromises.get(project.key) === promise) {
+        this.testNodeLoadPromises.delete(project.key);
+      }
+    }, () => {
+      if (this.testNodeLoadPromises.get(project.key) === promise) {
+        this.testNodeLoadPromises.delete(project.key);
+      }
+    });
+    return promise;
   }
 
   buildTestNode(project, test, groupSegments = []) {
@@ -951,10 +1124,14 @@ function summaryColor(summary) {
   return "descriptionForeground";
 }
 
-function summaryCheckboxState(summary) {
-  return summary.total > 0 && summary.checked === summary.total
+function checkboxStateFromBoolean(checked) {
+  return checked
     ? vscode.TreeItemCheckboxState.Checked
     : vscode.TreeItemCheckboxState.Unchecked;
+}
+
+function summaryCheckboxState(summary) {
+  return checkboxStateFromBoolean(summary.total > 0 && summary.checked === summary.total);
 }
 
 function testLeafName(test) {
@@ -1006,8 +1183,15 @@ function readResultStatus(resultPath, errorsPath) {
     return { status: "unknown", detail: null };
   }
 
-  const text = fs.readFileSync(resultPath, "utf8").trim();
   const detail = readArtifactPreview(errorsPath);
+  let text = "";
+  try {
+    text = fs.readFileSync(resultPath, "utf8").trim();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendOutput(`Could not read result artifact ${resultPath}: ${message}\n`);
+    return { status: "unknown", detail };
+  }
   if (text === "PASS") {
     return { status: "pass", detail };
   }
@@ -2027,9 +2211,42 @@ function buildPintosDebugConfiguration(rootPath, testNode, gdbPath) {
   };
 }
 
+async function ensureCppToolsAvailableForDebug() {
+  if (vscode.extensions.getExtension(CPPTOOLS_EXTENSION_ID)) {
+    return true;
+  }
+
+  const choice = await vscode.window.showErrorMessage(
+    "Pintos run/list features work without extra extensions, but debugging requires Microsoft C/C++ (`ms-vscode.cpptools`).",
+    "Install C/C++",
+    "Cancel"
+  );
+  if (choice !== "Install C/C++") {
+    return false;
+  }
+
+  try {
+    await vscode.commands.executeCommand(
+      "workbench.extensions.installExtension",
+      CPPTOOLS_EXTENSION_ID
+    );
+    vscode.window.showInformationMessage(
+      "Installed Microsoft C/C++. Reload the window if Pintos debug does not start immediately."
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    vscode.window.showErrorMessage(`Could not install Microsoft C/C++: ${message}`);
+  }
+  return false;
+}
+
 async function debugTest(testNode) {
   if (!testNode || testNode.nodeType !== "test") {
     vscode.window.showWarningMessage("Select exactly one test to debug.");
+    return;
+  }
+
+  if (!(await ensureCppToolsAvailableForDebug())) {
     return;
   }
 
@@ -2923,14 +3140,9 @@ function activate(context) {
 
   if (typeof treeView.onDidChangeCheckboxState === "function") {
     context.subscriptions.push(
-      treeView.onDidChangeCheckboxState(async (event) => {
-        for (const [node, state] of event.items) {
-          await provider.setCheckedForNode(
-            node,
-            state === vscode.TreeItemCheckboxState.Checked
-          );
-        }
-        provider.refresh();
+      treeView.onDidChangeCheckboxState((event) => {
+        // Apply immediately visible pending states, then resolve folder cascades in order.
+        void provider.enqueueCheckboxChanges([...event.items]);
       })
     );
   }
