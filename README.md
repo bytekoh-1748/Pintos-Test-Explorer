@@ -7,13 +7,13 @@ Pintos Test Explorer is a VS Code sidebar extension plus a bundled terminal CLI 
 ## Snapshot
 
 ```text
-1. Match the build directory's project-owned test list when a build Makefile exists.
-2. Use the same helper logic from the sidebar, pt, and pintos-tests.
-3. Handle wrapper layouts such as pintos_22.04_lab_docker without hard-coding one folder name.
-4. Ignore stale old group JSON so built-in folders like Alarm Clock keep their intended names.
-5. Keep full compiler output in the errors artifact even when a run fails during build.
-6. Keep repeated checkbox selection fast by reusing discovered test data until a real refresh is needed.
-7. Ask for Microsoft C/C++ only when a user starts Debug, not during extension install.
+1. Match the active build directory's project-owned TESTS list when a build Makefile exists.
+2. Keep optional nested Make.tests suites such as userprog/dup2 visible without adding them to project-level all runs unless the build TESTS selected them.
+3. Prefer the Pintos root implied by the terminal's current directory before falling back to pinned PINTOS_ROOT variables, so moving between build trees reads the right artifacts.
+4. Use the same helper logic from the sidebar, pt, and pintos-tests.
+5. Handle wrapper layouts such as pintos_22.04_lab_docker without hard-coding one folder name.
+6. Ignore stale old group JSON so built-in folders like Alarm Clock keep their intended names.
+7. Keep repeated checkbox selection fast by reusing discovered test data until a real refresh is needed.
 ```
 
 ```mermaid
@@ -77,6 +77,8 @@ Build a release VSIX from this checkout with:
 python3 scripts/build-pintos-test-explorer-vsix.py
 ```
 
+The generated release artifact is written to `dist/pintos-test-explorer-<version>.vsix`.
+
 Documentation is intentionally split by audience:
 
 - GitHub README: `README.md` and `README.ko.md`
@@ -87,7 +89,7 @@ Documentation is intentionally split by audience:
 
 ### Test discovery looks wrong in a wrapper repo
 
-Point the CLI at the real Pintos root if auto-detection is not enough:
+Run terminal commands from inside the Pintos tree or its build directories when possible. The CLI uses the current directory's Pintos root first, then falls back to `PINTOS_ROOT` if the current directory is outside a Pintos tree:
 
 ```bash
 PINTOS_ROOT=/path/to/pintos pt list threads

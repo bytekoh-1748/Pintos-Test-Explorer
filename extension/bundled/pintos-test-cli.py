@@ -101,25 +101,42 @@ def find_descendant_root(start: Path, *, max_depth: int = DESCENDANT_ROOT_SEARCH
     return None
 
 
+def find_root_upward(candidate: Path) -> Path | None:
+    for current in [candidate, *candidate.parents]:
+        for root_candidate in iter_root_candidates(current):
+            if is_pintos_root(root_candidate):
+                return root_candidate
+    return None
+
+
+def find_root_from(candidate: Path) -> Path | None:
+    root = find_root_upward(candidate)
+    if root is not None:
+        return root
+    return find_descendant_root(candidate)
+
+
 def discover_repo_root() -> Path:
+    cwd = Path.cwd()
+    cwd_root = find_root_upward(cwd)
+    if cwd_root is not None:
+        return cwd_root
+
     candidates: list[Path] = []
-    direct_root = os.environ.get("PINTOS_ROOT")
-    if direct_root:
-        candidates.append(Path(direct_root))
-    env_root = os.environ.get("PINTOS_WORKSPACE_ROOT")
-    if env_root:
-        candidates.append(Path(env_root))
-    candidates.append(Path.cwd())
+    for variable_name in ("PINTOS_ROOT", "PINTOS_WORKSPACE_ROOT"):
+        configured_root = os.environ.get(variable_name)
+        if configured_root:
+            candidates.append(Path(configured_root))
     candidates.append(Path(__file__).resolve().parent)
 
     for candidate in candidates:
-        for current in [candidate, *candidate.parents]:
-            for root_candidate in iter_root_candidates(current):
-                if is_pintos_root(root_candidate):
-                    return root_candidate
-        descendant_root = find_descendant_root(candidate)
-        if descendant_root is not None:
-            return descendant_root
+        root = find_root_from(candidate)
+        if root is not None:
+            return root
+
+    descendant_root = find_descendant_root(cwd)
+    if descendant_root is not None:
+        return descendant_root
 
     raise CliError(
         "Could not find a Pintos project root. "
@@ -154,6 +171,7 @@ class TestEntry:
     short_name: str
     group: str
     source_path: str | None = None
+    in_build: bool = True
 
 
 PROJECTS: dict[str, ProjectMeta] = {}
@@ -552,16 +570,29 @@ def load_make_variable_assignments(path: Path) -> dict[str, str]:
         return assignments
 
     for line in read_make_logical_lines(path):
-        if "+=" in line:
-            var, rhs = line.split("+=", 1)
-            var = var.strip()
-            rhs = rhs.strip()
-            assignments[var] = f"{assignments.get(var, '')} {rhs}".strip()
+        parsed = split_make_assignment(line)
+        if not parsed:
             continue
-        if "=" in line:
-            var, rhs = line.split("=", 1)
-            assignments[var.strip()] = rhs.strip()
+        var, op, rhs = parsed
+        if op == "+=":
+            assignments[var] = f"{assignments.get(var, '')} {rhs}".strip()
+        elif op == "?=":
+            assignments.setdefault(var, rhs)
+        else:
+            assignments[var] = rhs
     return assignments
+
+
+def split_make_assignment(line: str) -> tuple[str, str, str] | None:
+    for op in ("+=", ":=", "?=", "!=", "="):
+        if op not in line:
+            continue
+        var, rhs = line.split(op, 1)
+        var = var.strip()
+        if not var:
+            return None
+        return var, op, rhs.strip()
+    return None
 
 
 def split_top_level_args(text: str, expected_parts: int) -> list[str]:
@@ -650,15 +681,16 @@ def load_make_assignments(meta: ProjectMeta) -> dict[str, str]:
     assignments: dict[str, str] = {}
     for make_file in test_make_files_for_project(meta):
         for line in read_make_logical_lines(make_file):
-            if "+=" in line:
-                var, rhs = line.split("+=", 1)
-                var = var.strip()
-                rhs = rhs.strip()
-                assignments[var] = f"{assignments.get(var, '')} {rhs}".strip()
+            parsed = split_make_assignment(line)
+            if not parsed:
                 continue
-            if "=" in line:
-                var, rhs = line.split("=", 1)
-                assignments[var.strip()] = rhs.strip()
+            var, op, rhs = parsed
+            if op == "+=":
+                assignments[var] = f"{assignments.get(var, '')} {rhs}".strip()
+            elif op == "?=":
+                assignments.setdefault(var, rhs)
+            else:
+                assignments[var] = rhs
     return assignments
 
 
@@ -878,6 +910,8 @@ def build_test_entries(
     meta: ProjectMeta,
     full_names: list[str],
     assignments: dict[str, str] | None = None,
+    *,
+    in_build: bool = True,
 ) -> list[TestEntry]:
     entries: list[TestEntry] = []
     for index, full_name in enumerate(full_names, start=1):
@@ -890,6 +924,7 @@ def build_test_entries(
                 short_name=short_name,
                 group=group,
                 source_path=resolve_test_source_path(meta, full_name, short_name, assignments),
+                in_build=in_build,
             )
         )
     return entries
@@ -901,7 +936,7 @@ def parse_tests_from_makefiles(meta: ProjectMeta) -> list[TestEntry]:
     seen: set[str] = set()
 
     for variable_name, expression in assignments.items():
-        if not variable_name.endswith("_TESTS"):
+        if variable_name != "TESTS" and not variable_name.endswith("_TESTS"):
             continue
         for item in evaluate_make_expression(expression, assignments):
             if not is_project_test_name(meta, item):
@@ -957,15 +992,39 @@ def fetch_tests_via_make(meta: ProjectMeta) -> list[TestEntry]:
         seen.add(item)
         full_names.append(item)
 
-    entries = build_test_entries(meta, full_names, load_make_assignments(meta))
+    entries = build_test_entries(meta, full_names, load_make_assignments(meta), in_build=True)
     ensure_test_output_dirs(meta, entries)
     return entries
+
+
+def merge_test_entries(primary: list[TestEntry], supplemental: list[TestEntry]) -> list[TestEntry]:
+    entries = list(primary)
+    primary_names = {entry.full_name for entry in primary}
+    seen = set(primary_names)
+
+    for entry in supplemental:
+        if entry.full_name in seen:
+            continue
+        entries.append(entry)
+        seen.add(entry.full_name)
+
+    return [
+        TestEntry(
+            index=index,
+            full_name=entry.full_name,
+            short_name=entry.short_name,
+            group=entry.group,
+            source_path=entry.source_path,
+            in_build=entry.full_name in primary_names,
+        )
+        for index, entry in enumerate(entries, start=1)
+    ]
 
 
 def fetch_tests(meta: ProjectMeta, *, recent_first: bool = False) -> list[TestEntry]:
     if (meta.build_dir / "Makefile").exists():
         try:
-            entries = fetch_tests_via_make(meta)
+            entries = merge_test_entries(fetch_tests_via_make(meta), parse_tests_from_makefiles(meta))
         except CliError:
             parsed_entries = parse_tests_from_makefiles(meta)
             if not parsed_entries:
@@ -1033,6 +1092,7 @@ def entry_payload(entry: TestEntry) -> dict[str, object]:
         "short_name": entry.short_name,
         "group": entry.group,
         "source_path": entry.source_path,
+        "in_build": entry.in_build,
     }
 
 
@@ -1106,7 +1166,7 @@ def resolve_selection_tokens(
 
     for token in tokens:
         if token == "all":
-            matches = entries
+            matches = [entry for entry in entries if entry.in_build]
         else:
             numeric = parse_numeric_token(token, len(entries))
             if numeric is not None:

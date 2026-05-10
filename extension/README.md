@@ -13,14 +13,14 @@ Watch the walkthrough: [YouTube demo video](https://youtu.be/FyJ1jKg3zNk)
 ## Quick Summary
 
 ```text
-1. Match the build directory's project-owned test list when a build Makefile exists.
-2. Run, debug, reset, and inspect artifacts from VS Code or the terminal.
-3. Work from direct Pintos roots or wrapper layouts such as pintos_22.04_lab_docker.
-4. Ignore stale old group JSON so built-in folders like Alarm Clock keep their intended names.
-5. Keep repeated checkbox selection responsive by reusing discovered test data until a real refresh is needed.
+1. Match the active build directory's project-owned TESTS list when a build Makefile exists.
+2. Keep optional nested Make.tests suites such as userprog/dup2 visible without adding them to project-level all runs unless the build TESTS selected them.
+3. Prefer the Pintos root implied by the terminal's current directory before falling back to pinned PINTOS_ROOT variables, so moving between build trees reads the right artifacts.
+4. Run, debug, reset, and inspect artifacts from VS Code or the terminal.
+5. Work from direct Pintos roots or wrapper layouts such as pintos_22.04_lab_docker.
 ```
 
-The `Pintos` view and the `pt` / `pintos-tests` terminal commands share the same bundled helper. Both paths prefer the build Makefile's final `TESTS` list when it exists, keep only tests owned by the current sidebar project, fall back to that project's `Make.tests` before the first build, run through the same Pintos build tree, and inspect the same `output`, `result`, and `errors` artifacts.
+The `Pintos` view and the `pt` / `pintos-tests` terminal commands share the same bundled helper. Both paths prefer the build Makefile's final `TESTS` list when it exists, keep only tests owned by the current sidebar project, supplement/fall back with that project's nested `Make.tests` registrations, run project-level `all` actions from the build `TESTS` subset, and inspect the same `output`, `result`, and `errors` artifacts.
 
 ## Supported Layouts
 
@@ -31,7 +31,7 @@ The extension looks for a real Pintos root and supports:
 - a `src/` root
 - nested lab layouts such as `pintos_22.04_lab_docker`
 
-If needed, you can still point the CLI at the real root:
+The terminal CLI first uses the Pintos root implied by your current directory. If the current directory is outside a Pintos tree, you can still point the CLI at the real root:
 
 ```bash
 PINTOS_ROOT=/path/to/pintos pt list threads
@@ -74,7 +74,7 @@ pt artifacts threads alarm-zero
 - `alarm-zero` selects by exact short name.
 - `tests/threads/alarm-zero` also works.
 - `alarm-*` works as a wildcard pattern.
-- `all` is supported by `run` and project-scoped `reset`.
+- `all` is supported by `run` and project-scoped `reset`; when a build Makefile exists, it follows that build's `TESTS` subset.
 - `debug` and `artifacts` must resolve to exactly one test.
 - `--recent-first` reorders the list from local usage history.
 

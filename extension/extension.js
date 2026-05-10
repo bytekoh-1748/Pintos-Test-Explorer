@@ -323,8 +323,12 @@ class PintosTreeProvider {
 
   async setCheckedForNode(node, checked) {
     const testNodes = await this.getDescendantTestNodes(node);
+    const targetNodes =
+      node?.nodeType === "project" && checked
+        ? buildSelectedTestNodes(testNodes)
+        : testNodes;
     let changed = false;
-    for (const testNode of testNodes) {
+    for (const testNode of targetNodes) {
       changed = this.setChecked(testNode, checked) || changed;
     }
     return changed;
@@ -476,7 +480,7 @@ class PintosTreeProvider {
         PROJECT_ORDER.map(async (key) => {
           const project = PROJECTS[key];
           const nodes = await this.getTestNodesForProject(project);
-          return new ProjectNode(project, this.summarizeTestNodes(nodes));
+          return new ProjectNode(project, this.summarizeTestNodes(buildSelectedTestNodes(nodes)));
         })
       );
       return projects;
@@ -837,20 +841,44 @@ function loadMakeVariableAssignments(filePath) {
   }
 
   for (const line of readMakeLogicalLines(filePath)) {
-    if (line.includes("+=")) {
-      const [variableName, expression] = line.split("+=", 2);
-      const key = variableName.trim();
-      const value = expression.trim();
+    const assignment = splitMakeAssignment(line);
+    if (!assignment) {
+      continue;
+    }
+    const { key, operator, value } = assignment;
+    if (operator === "+=") {
       assignments[key] = `${assignments[key] || ""} ${value}`.trim();
       continue;
     }
-    if (line.includes("=")) {
-      const [variableName, expression] = line.split("=", 2);
-      assignments[variableName.trim()] = expression.trim();
+    if (operator === "?=") {
+      if (!(key in assignments)) {
+        assignments[key] = value;
+      }
+      continue;
     }
+    assignments[key] = value;
   }
 
   return assignments;
+}
+
+function splitMakeAssignment(line) {
+  for (const operator of ["+=", ":=", "?=", "!=", "="]) {
+    const index = line.indexOf(operator);
+    if (index < 0) {
+      continue;
+    }
+    const key = line.slice(0, index).trim();
+    if (!key) {
+      return null;
+    }
+    return {
+      key,
+      operator,
+      value: line.slice(index + operator.length).trim()
+    };
+  }
+  return null;
 }
 
 function evaluateMakeWords(expression, assignments, seen = new Set()) {
@@ -1144,6 +1172,10 @@ function buildTestTooltip(testNode) {
     testNode.project.label,
     testNode.test.full_name
   ];
+
+  if (!isBuildSelectedTest(testNode.test)) {
+    lines.push("", "Not selected by the current build TESTS; run this test explicitly from its row or folder.");
+  }
 
   if (testNode.status === "build_error" && testNode.statusDetail) {
     lines.push("", "Recent build output:", testNode.statusDetail);
@@ -2061,7 +2093,7 @@ async function runTests(nodes) {
 }
 
 async function runProject(projectNode) {
-  const tests = await provider.getDescendantTestNodes(projectNode);
+  const tests = buildSelectedTestNodes(await provider.getDescendantTestNodes(projectNode));
   return runTests(tests);
 }
 
@@ -2474,6 +2506,14 @@ function customTestFullName(project, relativeTestPath) {
 
 function isProjectOwnedTest(project, test) {
   return String(test?.full_name || "").startsWith(`tests/${project.key}/`);
+}
+
+function isBuildSelectedTest(test) {
+  return test?.in_build !== false;
+}
+
+function buildSelectedTestNodes(nodes) {
+  return nodes.filter((node) => node?.nodeType === "test" && isBuildSelectedTest(node.test));
 }
 
 function looksLikeCustomTestPath(relativeTestPath) {

@@ -1,8 +1,12 @@
 # Changelog
 
-## 0.2.7
+## 0.2.9
 
 - Matched sidebar and CLI discovery to the build Makefile's final `TESTS` list when available while preserving project-owned suite filtering, so `alarm-*` and `priority-*` stay under Threads instead of leaking into User Programs.
+- Restored project-owned nested `Make.tests` discovery for optional User Programs suites such as `tests/userprog/dup2`, so folders like `dup2` and tests like `dup2/duplicate` remain visible even when templates omit them from `TEST_SUBDIRS`.
+- Kept project-level Run All, project checkbox selection, project pass/fail summaries, and CLI `all` aligned with the build `TESTS` subset while still allowing supplemental tests to run explicitly.
+- Made terminal CLI runs prefer the Pintos root implied by the current directory before falling back to pinned terminal root variables, so moving into another build tree cannot read stale PASS/FAIL artifacts from the wrong root.
+- Accepted common Make assignment variants such as `:=`, `?=`, and direct `TESTS += ...` registrations while still filtering entries to the owning sidebar project.
 - Passed full test targets into debug preparation, keeping debug runs in the same build tree as the sidebar run action.
 - Pinned the bundled `pt` / `pintos-tests` commands in new VS Code integrated terminals to the Pintos root discovered by the extension, so changing directories inside a wrapper workspace no longer makes the CLI read a different build tree and show different PASS/FAIL artifacts.
 - Made descendant Pintos root discovery deterministic in the sidebar by scanning child directories in name order, matching the bundled CLI.
